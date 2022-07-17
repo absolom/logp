@@ -1,0 +1,4 @@
+> Install SQLite (Alpine Linux)
+
+apk get sqlite
+
