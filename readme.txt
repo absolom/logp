@@ -15,6 +15,8 @@ database and running data analysis tools.
 
 > Work Log
 
+-Look up how to build a table with specific indexes
+
 >> SQLite
 
 SQLite can be used to load large amounts of log data and provide a fast
@@ -39,4 +41,20 @@ sqlite> .mode csv
 sqlite> .import --skip 1 test2.csv logs
 
 skip 1 is needed otherwise the row with header labels will be added to the table
+
+>> Large file vim
+
+syntax off
+filetype off
+set noundofile
+set noswapfile
+set noloadplugins
+
+> SQL Reference
+
+>> Retrieving adjacent lines
+
+select * from (select * from logs_small where Timestamp > 100000246 limit 4) union select * from (select * from logs_small where Timestamp < 100000246 order by Timestamp desc limit 4);
+
+
 
