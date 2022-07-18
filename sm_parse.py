@@ -41,6 +41,44 @@ import re
 instance_start_col = 3
 instance_start_re = re.compile(r'New command started ctag : 0x([0-9a-fA-F]+)')
 
+class RegexParser:
+    def __init__(self, pattern, labels):
+        self.pattern = r'ctag : 0x([0-9a-fA-F]+)'
+        self.labels = labels
+
+    def parse(self, line):
+        mo = re.search(self.pattern, line)
+        if mo:
+            groups = [mo.group(x) for x in range(1,len(self.labels))]
+            return {x:y for x,y in zip(self.labels, groups)}
+        else:
+            raise ValueError("Couldn't parse field.")
+
+class Field:
+    def __init__(self, col, val, offset=0):
+        self.offset = offset
+        self.col = col
+        self.val = val
+
+class Event:
+    def __init__(self, trigger, fields=[]):
+        self.trigger = trigger
+        self.fields = fields
+
+# TODO : Figure out how to parse values from fields; pair up Field instances with Parser instances?
+
+class StateClosed:
+    def __init__(self):
+        self.name = 'closed'
+        self.transitions = { Event(Field('Msg', 'New command started ctag')) : None }
+        self.triggers = [x.trigger for x in self.transitions]
+
+class StateOpen:
+    def __init__(self):
+        self.name = 'open'
+        self.transitions = { Event(Field('Msg', 'Command completed ctag')) : None }
+        self.triggers = [x.trigger for x in self.transitions]
+
 class StateMachine:
     @staticmethod
     def is_start(row):
@@ -50,33 +88,33 @@ class StateMachine:
             return None
 
     def __init__(self):
-        self.state = 'open'
-        self.transitions = []
-
-    def add_state(self, state):
-        self.states[state.name] = state
-        self.transitions += state.transitions
+        self.states = None
+        self.
 
 states = ['alive']
 events = [(0,)]
 
 """
-states : open
-events : 
-    - column : 'Msg'
-      event : 'New command started ctag : 0x([0-9a-fA-F]+)']
-        transitions : {None : 'open'}
-        values :
-            1 : tag
-    - 'Command completed ctag : 0x([0-9a-fA-F]+)'
-        transitions : {'open' : None}
-        values :
-            1 : tag
-
-
-
+states:
+    - event:
+        column: Msg
+        str: "New command started ctag"
+      values:
+        - offset: 0
+          column: Msg
+          regex: "ctag : 0x([0-9a-fA-F]+)"
+          labels: [tag]
+      transitions: { None: open }
+    - event:
+        column: Msg
+        str: "Command completed ctag"
+      values:
+        - offset: 0
+          column: Msg
+          regex: "ctag : 0x([0-9a-fA-F]+)"
+          labels: [tag]
+      transitions: { open: None }
 """
-
 
 class State:
     def __init__(self, name):
