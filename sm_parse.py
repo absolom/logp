@@ -55,44 +55,70 @@ class RegexParser:
             raise ValueError("Couldn't parse field.")
 
 class Field:
-    def __init__(self, col, val, offset=0):
+    def __init__(self, col, regex, offset=0):
         self.offset = offset
+        self.col = col
+        self.regex = regex
+
+class Trigger:
+    def __init__(self, col, val):
         self.col = col
         self.val = val
 
 class Event:
-    def __init__(self, trigger, fields=[]):
+    def __init__(self, trigger, fields=frozenset()):
         self.trigger = trigger
         self.fields = fields
 
-# TODO : Figure out how to parse values from fields; pair up Field instances with Parser instances?
+    def __hash__(self):
+        return hash((self.trigger, self.fields))
 
-class StateClosed:
-    def __init__(self):
-        self.name = 'closed'
-        self.transitions = { Event(Field('Msg', 'New command started ctag')) : None }
-        self.triggers = [x.trigger for x in self.transitions]
+    def __eq__(self, other):
+        return self.trigger == other.trigger and self.fields == other.fields
 
-class StateOpen:
-    def __init__(self):
-        self.name = 'open'
-        self.transitions = { Event(Field('Msg', 'Command completed ctag')) : None }
-        self.triggers = [x.trigger for x in self.transitions]
 
 class StateMachine:
-    @staticmethod
-    def is_start(row):
-        if instance_start_re.match(row[instance_start_col]):
-            return StateMachine()
-        else:
-            return None
 
     def __init__(self):
-        self.states = None
-        self.
+        # self.states = [StateClosed(), StateOpen()]
 
-states = ['alive']
-events = [(0,)]
+        self.states = [None, 'inflight']
+        self.transitions = {x:{} for x in self.states}
+
+        fields = frozenset((Field('Msg', r'ctag : 0x([0-9a-fA-F]+)'),))
+
+        event = Event(Trigger('Msg', 'New command started ctag'), fields=fields)
+        self.transitions[None][event] = 'inflight'
+        event = Event(Trigger('Msg', 'Command completed ctag'), fields=fields)
+        self.transitions['inflight'][event] = None
+
+        self.triggers = [y.trigger for x in self.transitions for y in self.transitions[x]]
+
+    def parse(self, cur):
+#        triggers = [y for x in self.states for y in x.triggers]
+        cols = list(set([x.col for x in self.triggers]))
+        cols_lut = {cols[x]:x for x in range(0,len(cols))}
+        sql = ["instr({:s},'{:s}') > 0".format(x.col, x.val) for x in self.triggers]
+        sql = ' or '.join(sql)
+        sql_cols = ','.join(cols)
+        cmd = "select {:s} from logs_small where {:s};".format(sql_cols, sql)
+
+        for row in cur.execute(cmd):
+            for trigger in self.triggers:
+                field = row[cols_lut[trigger.col]]
+                if trigger.val in field:
+                    # x for x in trigger.  # TODO : Need to extract fields here
+                    print(row)
+
+# states = ['alive']
+
+# @staticmethod
+# def is_start(row):
+#     if instance_start_re.match(row[instance_start_col]):
+#         return StateMachine()
+#     else:
+#         return None
+# events = [(0,)]
 
 """
 states:
@@ -116,26 +142,58 @@ states:
       transitions: { open: None }
 """
 
-class State:
-    def __init__(self, name):
-        self.name = name
-        self.transitions = []
+# class State:
+#     def __init__(self, name):
+#         self.name = name
+#         self.transitions = []
 
-def rematch(expr, item):
-    return re.match(expr, item) is not None
+# def rematch(expr, item):
+#     return re.match(expr, item) is not None
 
 #con.create_function('REGEXP', 2, rematch)
 #for row in cur.execute("select * from logs where Msg like 'New command started ctag%'"):
 
-start = State('start')
-start.transitions = 
+# start = State('start')
+# start.transitions = 
 
 con = sqlite3.connect('logs_small.db')
 cur = con.cursor()
-for row in cur.execute('pragma table_info(logs_small)'):
-    print(row)
-cur = con.cursor()
-for row in cur.execute("select * from logs_small where instr(Msg, 'New command') > 0;"):
-    print(row)
-con.close()
+sm = StateMachine()
+sm.parse(cur)
+
+# for row in cur.execute('pragma table_info(logs_small)'):
+#     print(row)
+# cur = con.cursor()
+# for row in cur.execute("select * from logs_small where instr(Msg, 'New command') > 0;"):
+#     print(row)
+# con.close()
+
+# class StateClosed:
+#     def __init__(self):
+#         self.name = 'closed'
+#         fields = [Field('Msg', r'ctag : 0x([0-9a-fA-F]+)')]
+#         self.transitions = { Event(Trigger('Msg', 'New command started ctag'), fields=fields) : None }
+#         self.triggers = [x.trigger for x in self.transitions]
+
+# class StateOpen:
+#     def __init__(self):
+#         self.name = 'open'
+#         fields = [Field('Msg', r'ctag : 0x([0-9a-fA-F]+)')]
+#         self.transitions = { Event(Trigger('Msg', 'Command completed ctag'), fields=fields) : None }
+#         self.triggers = [x.trigger for x in self.transitions]
+
+#         # fields = [Field('Msg', r'ctag : 0x([0-9a-fA-F]+)')]
+#         # self.transitions = { Event(Trigger('Msg', 'Command completed ctag'), fields=fields) : None }
+
+#         # self.name = 'closed'
+#         # self.transitions = {  : None }
+#         # self.triggers = [x.trigger for x in self.transitions]
+
+#         # self.name = 'open'
+#         # fields = [Field('Msg', r'ctag : 0x([0-9a-fA-F]+)')]
+#         # self.transitions = { Event(Trigger('Msg', 'Command completed ctag'), fields=fields) : None }
+#         # self.triggers = [x.trigger for x in self.transitions]
+
+#         # self.instances = {}
+
 
