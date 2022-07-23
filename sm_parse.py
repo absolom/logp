@@ -98,9 +98,9 @@ class StateMachine:
 #        triggers = [y for x in self.states for y in x.triggers]
         cols = list(set([x.col for x in self.triggers]))
         cols_lut = {cols[x]:x for x in range(0,len(cols))}
+        sql_cols = ','.join(cols)
         sql = ["instr({:s},'{:s}') > 0".format(x.col, x.val) for x in self.triggers]
         sql = ' or '.join(sql)
-        sql_cols = ','.join(cols)
         cmd = "select {:s} from logs_small where {:s};".format(sql_cols, sql)
 
         for row in cur.execute(cmd):
@@ -156,10 +156,49 @@ states:
 # start = State('start')
 # start.transitions = 
 
-con = sqlite3.connect('logs_small.db')
+con = sqlite3.connect('logs.db')
+#con = sqlite3.connect('logs.db')
 cur = con.cursor()
-sm = StateMachine()
-sm.parse(cur)
+instances = { x : None for x in range(0,256) }
+lives = { x : [] for x in range(0,256) }
+rows = cur.execute("select * from logs where instr(Msg,'ctag') != 0;")
+count = 0
+for timestamp,module,submodule,msg,data0,data1,data2,data3 in rows:
+    mo = re.match(r'^New.*ctag : 0x([0-9a-fA-F]+)', msg)
+    if mo:
+        ctag = int(mo.group(1),16)
+        instances[ctag] = 'alive'
+        lives[ctag].append((timestamp,))
+        continue
+    mo = re.match(r'.*completed.*ctag : 0x([0-9a-fA-F]+)', msg)
+    if mo:
+        ctag = int(mo.group(1),16)
+        instances[ctag] = None
+        life = lives[ctag].pop()
+        lives[ctag].append((life[0],timestamp))
+        continue
+
+for ctag in lives:
+    print("{:d} : {:d}".format(ctag, len(lives[ctag])))
+
+alive = [tag for tag in instances if instances[tag] == 'alive']
+print(instances)
+
+    
+#print(count)
+#sm = StateMachine()
+#sm.parse(cur)
+
+
+"""
+
+-Is SQL faster or slower that ag?
+
+Need to get all of the relevant lines out of the database
+"""
+
+
+
 
 # for row in cur.execute('pragma table_info(logs_small)'):
 #     print(row)

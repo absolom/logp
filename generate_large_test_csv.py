@@ -34,38 +34,44 @@ class GenerateStates:
         self.gen = gen
         self.tags_closed = [self.Command(tag=x) for x in range(0,256)]
         self.tags_open = []
+        self.enable_lossy = True
 
     def header(self):
         return self.gen.header()
 
     def row(self):
         val = randint(1,100)
+        row = self.gen.row()
         if val < 2:
-            row = self.gen.row()
             if self.tags_closed:
                 cmd = self.tags_closed.pop(randint(0, len(self.tags_closed)-1))
                 row[3] = 'New command started ctag : 0x{:02X}'.format(cmd.tag)
                 self.tags_open.append(cmd)
         elif val < 4:
-            row = self.gen.row()
+            if self.tags_open:
+                cmd = self.tags_open.pop(randint(0, len(self.tags_open)-1))
+                row[3] = 'Command blocked ctag : 0x{:02X}'.format(cmd.tag)
+        elif val < 6:
             if self.tags_open:
                 cmd = self.tags_open.pop(randint(0, len(self.tags_open)-1))
                 row[3] = 'Command completed ctag : 0x{:02X}'.format(cmd.tag)
                 self.tags_closed.append(cmd)
-        else:
-            row = self.gen.row()
+
+        if randint(1,1000) < 2:
+            row = None
 
         return row
 
-def generate_data(num_rows, gen, status_increment=100000):
-    with open('test_small.csv', 'w', newline='') as f:
+def generate_data(num_rows, gen, filename, status_increment=100000):
+    with open(filename, 'w', newline='') as f:
         writer = csv.writer(f)
         headers = gen.header()
         writer.writerow(headers)
         start_time = datetime.datetime.now().timestamp()
         for entry_num in range(0,num_rows):
             row = gen.row()
-            writer.writerow(row)
+            if row is not None:
+                writer.writerow(row)
             if entry_num % status_increment == 0:
                 if entry_num:
                     curr_elapsed = datetime.datetime.now().timestamp() - start_time
@@ -76,6 +82,6 @@ def generate_data(num_rows, gen, status_increment=100000):
 if __name__ == '__main__':
     # generate_data(10**6 * 40, GeneratorBasic(start_time=100000000))
     generator = GenerateStates(GeneratorBasic(start_time=100000000))
-    generate_data(10**4, generator)
-    #generate_data(10**6 * 40, generator)
+    generate_data(10**4, generator, 'test_small.csv')
+    #generate_data(10**6 * 40, generator, 'test.csv')
 
