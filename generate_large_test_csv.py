@@ -25,42 +25,127 @@ class GeneratorBasic:
         self.entry_num += 1
         return row
 
-class GenerateStates:
-    class Command:
-        def __init__(self, tag):
-            self.tag = tag
+"""
+> State Machine ctag
 
+- state_machine:
+    name: ctag
+    states:
+        - regex: 'New command started ctag : 0x{:02X}'
+          fields:
+            - name: tag
+              parse: 'x: int(x,16)'
+          transitions:
+            - {from: None, to: open}
+        - regex: 'Command started processing ctag : 0x{:02X}'
+          fields:
+            - name: tag
+              parse: 'x: int(x,16)'
+          transition:
+            - {from: open, to: processing}
+
+r'New command started ctag : 0x{:02X}'
+    {1 : tag}
+    None -> 'open'
+
+r'Command started processing ctag : 0x{:02X}'
+    {1 : tag}
+    'open' -> 'processing'
+
+r'Cache hit, early return ctag : 0x{:02X}'
+    {1 : tag}
+    'processing' -> 'complete'
+
+r'Dispatched command ctag : 0x{:02X} subtag : 0x{:02X}'
+    {1 : tag, 2 : subtag}
+    'processing' -> 'dispatch'
+
+r'Command complete ctag : 0x{:02X}'
+    {1 : tag}
+    'dispatch' -> 'response'
+
+r'Command complete ctag : 0x{:02X}'
+    {1 : tag}
+    'response' -> 'complete'
+    'Response status : {:d}'
+        offset : 1
+        {1 : (response, dec)}
+
+r'Command complete ctag : 0x{:02X}'
+    {1 : tag}
+    'complete' -> None
+
+
+> State Machine subtag
+
+"""
+
+class GenerateStates:
     def __init__(self, gen):
         self.gen = gen
-        self.tags_closed = [self.Command(tag=x) for x in range(0,256)]
-        self.tags_open = []
+        self.tags = {x : None for x in range(0,256)}
         self.enable_lossy = True
+
+    def transition(self, tag):
+        state = self.tags[tag]
+        rows = []
+        if state is None:
+            row = self.gen.row()
+            rows.append(row)
+            row[3] = 'New command started ctag : 0x{:02X}'.format(tag)
+            self.tags[tag] = 'open'
+        elif state == 'open':
+            row = self.gen.row()
+            rows.append(row)
+            row[3] = 'Command started processing ctag : 0x{:02X}'.format(tag)
+            self.tags[tag] = 'processing'
+        elif state == 'processing':
+            if randint(0,1) == 0:
+                row = self.gen.row()
+                rows.append(row)
+                row[3] = 'Cache hit, early return ctag : 0x{:02X}'.format(tag)
+                self.tags[tag] = 'complete'
+            else:
+                row = self.gen.row()
+                rows.append(row)
+                subtag = randint(0,255)
+                row[3] = 'Dispatched command ctag : 0x{:02X} subtag : 0x{:02X}'.format(tag,subtag)
+                self.tags[tag] = 'dispatch'
+        elif state == 'dispatch':
+            row = self.gen.row()
+            rows.append(row)
+            row[3] = 'Command complete ctag : 0x{:02X}'.format(tag)
+            self.tags[tag] = 'response'
+        elif state == 'response':
+            row = self.gen.row()
+            row[3] = 'Command response received ctag : 0x{:02X}'.format(tag)
+            rows.append(row)
+            row = self.gen.row()
+            row[3] = 'Response status : {:d}'.format(randint(0,9))
+            rows.append(row)
+            self.tags[tag] = 'complete'
+        elif state == 'complete':
+            row = self.gen.row()
+            rows.append(row)
+            row[3] = 'Command complete ctag : 0x{:02X}'.format(tag)
+            self.tags[tag] = None
+
+        return rows
 
     def header(self):
         return self.gen.header()
 
     def row(self):
         val = randint(1,100)
-        row = self.gen.row()
         if val < 2:
-            if self.tags_closed:
-                cmd = self.tags_closed.pop(randint(0, len(self.tags_closed)-1))
-                row[3] = 'New command started ctag : 0x{:02X}'.format(cmd.tag)
-                self.tags_open.append(cmd)
-        elif val < 4:
-            if self.tags_open:
-                cmd = self.tags_open.pop(randint(0, len(self.tags_open)-1))
-                row[3] = 'Command blocked ctag : 0x{:02X}'.format(cmd.tag)
-        elif val < 6:
-            if self.tags_open:
-                cmd = self.tags_open.pop(randint(0, len(self.tags_open)-1))
-                row[3] = 'Command completed ctag : 0x{:02X}'.format(cmd.tag)
-                self.tags_closed.append(cmd)
+            rows = self.transition(randint(0, len(self.tags)-1))
+        else:
+            rows = [self.gen.row()]
 
-        if randint(1,1000) < 2:
-            row = None
+        if self.enable_lossy and randint(1,1000) < 2:
+            rows = [x for x in rows if randint(1,1000) > 1]
 
-        return row
+        return rows
 
 def generate_data(num_rows, gen, filename, status_increment=100000):
     with open(filename, 'w', newline='') as f:
@@ -69,8 +154,8 @@ def generate_data(num_rows, gen, filename, status_increment=100000):
         writer.writerow(headers)
         start_time = datetime.datetime.now().timestamp()
         for entry_num in range(0,num_rows):
-            row = gen.row()
-            if row is not None:
+            rows = gen.row()
+            for row in rows:
                 writer.writerow(row)
             if entry_num % status_increment == 0:
                 if entry_num:
@@ -82,6 +167,6 @@ def generate_data(num_rows, gen, filename, status_increment=100000):
 if __name__ == '__main__':
     # generate_data(10**6 * 40, GeneratorBasic(start_time=100000000))
     generator = GenerateStates(GeneratorBasic(start_time=100000000))
-    generate_data(10**4, generator, 'test_small.csv')
-    #generate_data(10**6 * 40, generator, 'test.csv')
+    #generate_data(10**4, generator, 'test_small.csv')
+    generate_data(10**6 * 40, generator, 'test.csv')
 
