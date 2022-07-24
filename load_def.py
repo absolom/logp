@@ -29,59 +29,76 @@ class Event:
         ret = 'Event Id : {:d} - {:s}'.format(self.eid, pp.pformat(self.fields))
         return ret
 
-with open('states.yaml', 'r') as f:
-    data = f.read()
+def load_yaml(filename):
+    with open(filename, 'r') as f:
+        data = f.read()
 
-#data = test_yaml
+    return yaml.safe_load(data)
 
-event_defs = yaml.safe_load(data)['events']
-match_strings = [x['match'] for x in event_defs]
+def get_headers(cur, table_name):
+    headers = []
+    rows = cur.execute('pragma table_info({:s});'.format(table_name))
+    for row in rows:
+        headers.append(row[1])
+    return headers
 
-sql_match = ["instr({:s},'{:s}') != 0".format(x[0],x[1]) for x in match_strings]
-sql_match = ' or '.join(sql_match)
+def parse_events(event_defs, cur):
+    match_strings = [x['match'] for x in event_defs]
 
-con = sqlite3.connect('logs.db')
-cur = con.cursor()
+    sql_match = ["instr({:s},'{:s}') != 0".format(x[0],x[1]) for x in match_strings]
+    sql_match = ' or '.join(sql_match)
 
-headers = ['Timestamp','Module','Submodule','Msg','Data1','Data2','Data3','Data']
-hind = { headers[x] : x for x in range(0,len(headers)) }
+    headers = get_headers(cur, 'logs')
+    hind = { headers[x] : x for x in range(0,len(headers)) }
 
-# TODO : Faster to do a select for each match string or combined search?
+    # TODO : Faster to do a select for each match string or combined search?
 
-state_machine_events = { 'subtag' : [], 'sm' : [] }
+    state_machine_events = { 'subtag' : [], 'sm' : [] }
 
-rows = cur.execute('select * from logs where {:s};'.format(sql_match))
-events = []
-cnt = 0
-for row in rows:
-    if cnt % 1000 == 0:
-        sys.stdout.write('.')
-        sys.stdout.flush()
-    cnt += 1
-    msg = row[hind['Msg']]
-    event_ids = [ ind for ind,x in enumerate(match_strings) if match_strings[ind][1] in row[hind[match_strings[ind][0]]] ]
-    for eid in event_ids:
-        event = Event(eid)
-        events.append(event)
-        event_def = event_defs[eid]
-        for field_def in event_def['field_defs']:
-            col = field_def['regex'][0]
-            regex = field_def['regex'][1]
-            val = row[hind[col]]
-            mo = re.search(regex, val)
-            if not mo:
-                raise RuntimeError('Match not found where expected')
-            for ind,label in enumerate(field_def['labels']):
-                name = label['name']
-                parse_code = 'parser = {:s}'.format(label['parse'])
-                exec(parse_code)
-                event.fields[name] = parser(mo.group(ind+1))
-sys.stdout.write('\n')
-print(cnt)
-print(events[0])
+    rows = cur.execute('select * from logs where {:s};'.format(sql_match))
+    events = []
+    cnt = 0
+    for row in rows:
+        if cnt % 1000 == 0:
+            sys.stdout.write('.')
+            sys.stdout.flush()
+        cnt += 1
+        msg = row[hind['Msg']]
+        event_ids = [ ind for ind,x in enumerate(match_strings) if match_strings[ind][1] in row[hind[match_strings[ind][0]]] ]
+        for eid in event_ids:
+            event = Event(eid)
+            events.append(event)
+            event_def = event_defs[eid]
+            for field_def in event_def['field_defs']:
+                col = field_def['regex'][0]
+                regex = field_def['regex'][1]
+                val = row[hind[col]]
+                mo = re.search(regex, val)
+                if not mo:
+                    raise RuntimeError('Match not found where expected')
+                for ind,label in enumerate(field_def['labels']):
+                    name = label['name']
+                    parse_code = 'parser = {:s}\n'.format(label['parse'])
+                    parse_code += 'event.fields[name] = parser(mo.group(ind+1))'
+                    exec(parse_code)
+    sys.stdout.write('\n')
+    print(cnt)
+
+    return events
+
+def main():
+    event_defs = load_yaml('states.yaml')['events']
+    con = sqlite3.connect('logs.db')
+    cur = con.cursor()
+    events = parse_events(event_defs, cur)
+
+    print(events[0])
+
+if __name__ == '__main__':
+    main()
 
 """
-# TODO
+TODO
 - Figure out stages of processing.
   - Process events (specific eid's or events tied to a specific SM, a logical
     set of eid's can be defined and referenced by a label e.g. BE_Errors)
@@ -107,4 +124,3 @@ computation when whole log is not needed
   - Maybe not something so over engineered, instead allow a function to
     provided to get the next row to consider (ie a selector?)?
 """
-
