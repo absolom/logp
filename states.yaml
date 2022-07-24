@@ -55,6 +55,20 @@ events:
     transitions:
       - {sm: ctag, from: complete, to: None}
 
+state_machines:
+  - name: ctag
+    instance_id: ctag
+    instance_id_valid_range: [0,255]
+  - name: subtag
+    instance_id: subtag
+    instance_id_valid_range: [0,255]
+
+views:
+  - name: Module0
+    sql_filter: where Module == 'Module0'
+  - name: Module0
+    sql_filter: where Module == 'Module0'
+
 # -Probably need to add a filter: field for relative_events to fully define
 # what "offset" means
 

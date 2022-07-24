@@ -82,16 +82,29 @@ print(events[0])
 
 """
 # TODO
-- Figure out stages or processing.
+- Figure out stages of processing.
   - Process events (specific eid's or events tied to a specific SM, a logical
     set of eid's can be defined and referenced by a label e.g. BE_Errors)
     - Provides list of events with parsed fields
     -Should results be stored in DB table (or at least the option to?)?
+    -Handle lossy compound events here
   - Process instances
     - Will group all events related to SM instance's life together
     - Will produce a state transition sequence for the life of the instance.
       Each event in the sequence will have all parsed fields.
+    -Handle lossy events here (generate implicit transitions for missing events)
   - Generate visualizations
     - Histograms, etc.
+
+- Log parsing will be done on demand instead of all or nothing
+
+-Add support for parsing fields via a struct name (whose definition is pulled
+from dwarf data)
+
+-Add concept of "views" which are filtered version of the whole log but
+processing steps can be applied to these instead of the whole log to reduce
+computation when whole log is not needed
+  - Maybe not something so over engineered, instead allow a function to
+    provided to get the next row to consider (ie a selector?)?
 """
 
