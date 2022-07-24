@@ -67,6 +67,29 @@ event_groups:
   - name: errors
     events_ids: [0, 5, 12]
 
+tables:
+  - name: log
+    columns:
+      - label: Timestamp
+        type: int
+      - label: Module
+        type: enum(Mod1,Mod2,Mod3,Mod4,Mod5,Mod6)
+      - label: Submodule
+        type: enum(Submod1,Submod2,Submod3,Submod4,Submod5,Submod6,Submod7,Submod8,Submod9,Submod10,Submod11,Submod12,Submod13,Submod14,Submod15,Submod16)
+      - label: Msg
+        type: text
+      - label: Data1
+        type: int
+      - label: Data2
+        type: int
+      - label: Data3
+        type: int
+      - label: Data4
+        type: int
+    primary_key: [Timestamp]
+    indexes: [[Timestamp],[Module]]
+
+
 # -Probably need to add a filter: field for relative_events to fully define
 # what "offset" means
 
