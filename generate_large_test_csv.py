@@ -25,60 +25,26 @@ class GeneratorBasic:
         self.entry_num += 1
         return row
 
-"""
-> State Machine ctag
+class GenerateStatesFromYaml:
+    def __init__(self, yaml_data, gen):
+        self.yaml = yaml_data
+        self.gen = gen
 
-- state_machine:
-    name: ctag
-    states:
-        - regex: 'New command started ctag : 0x{:02X}'
-          fields:
-            - name: tag
-              parse: 'x: int(x,16)'
-          transitions:
-            - {from: None, to: open}
-        - regex: 'Command started processing ctag : 0x{:02X}'
-          fields:
-            - name: tag
-              parse: 'x: int(x,16)'
-          transition:
-            - {from: open, to: processing}
+    def header(self):
+        return self.gen.header()
 
-r'New command started ctag : 0x{:02X}'
-    {1 : tag}
-    None -> 'open'
+    def row(self):
+        # TODO : Use data from states.yaml to generate csv log
+        val = randint(1,100)
+        if val < 2:
+            rows = self.transition(randint(0, len(self.tags)-1))
+        else:
+            rows = [self.gen.row()]
 
-r'Command started processing ctag : 0x{:02X}'
-    {1 : tag}
-    'open' -> 'processing'
+        if self.enable_lossy and randint(1,1000) < 2:
+            rows = [x for x in rows if randint(1,1000) > 1]
 
-r'Cache hit, early return ctag : 0x{:02X}'
-    {1 : tag}
-    'processing' -> 'complete'
-
-r'Dispatched command ctag : 0x{:02X} subtag : 0x{:02X}'
-    {1 : tag, 2 : subtag}
-    'processing' -> 'dispatch'
-
-r'Command complete ctag : 0x{:02X}'
-    {1 : tag}
-    'dispatch' -> 'response'
-
-r'Command complete ctag : 0x{:02X}'
-    {1 : tag}
-    'response' -> 'complete'
-    'Response status : {:d}'
-        offset : 1
-        {1 : (response, dec)}
-
-r'Command complete ctag : 0x{:02X}'
-    {1 : tag}
-    'complete' -> None
-
-
-> State Machine subtag
-
-"""
+        return rows
 
 class GenerateStates:
     def __init__(self, gen):
@@ -169,4 +135,6 @@ if __name__ == '__main__':
     generator = GenerateStates(GeneratorBasic(start_time=100000000))
     #generate_data(10**4, generator, 'test_small.csv')
     generate_data(10**6 * 40, generator, 'test.csv')
+
+
 

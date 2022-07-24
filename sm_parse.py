@@ -184,15 +184,14 @@ for ctag in lives:
 alive = [tag for tag in instances if instances[tag] == 'alive']
 print(instances)
 
-    
 #print(count)
 #sm = StateMachine()
 #sm.parse(cur)
 
-
 """
 
 -Is SQL faster or slower that ag?
+  - ag has a max file size limit of just a couple of gigs
 
 Need to get all of the relevant lines out of the database
 """
