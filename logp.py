@@ -38,14 +38,14 @@ def parse_events(event_defs, cur):
     sql_match = ["instr({:s},'{:s}') != 0".format(x[0],x[1]) for x in match_strings]
     sql_match = ' or '.join(sql_match)
 
-    headers = get_headers(cur, 'logs')
+    headers = get_headers(cur, 'log')
     hind = { headers[x] : x for x in range(0,len(headers)) }
 
     # TODO : Faster to do a select for each match string or combined search?
 
     state_machine_events = { 'subtag' : [], 'sm' : [] }
 
-    rows = cur.execute('select * from logs where {:s};'.format(sql_match))
+    rows = cur.execute('select * from log where {:s};'.format(sql_match))
     events = []
     cnt = 0
     for row in rows:
@@ -63,14 +63,19 @@ def parse_events(event_defs, cur):
                 col = field_def['regex'][0]
                 regex = field_def['regex'][1]
                 val = row[hind[col]]
-                mo = re.search(regex, val)
-                if not mo:
-                    raise RuntimeError('Match not found where expected')
-                for ind,label in enumerate(field_def['labels']):
-                    name = label['name']
-                    parse_code = 'parser = {:s}\n'.format(label['parse'])
-                    parse_code += 'event.fields[name] = parser(mo.group(ind+1))'
-                    exec(parse_code)
+                if regex:
+                    mo = re.search(regex, val)
+                    if not mo:
+                        raise RuntimeError('Match not found where expected')
+                    for ind,label in enumerate(field_def['labels']):
+                        name = label['name']
+                        parse_code = 'parser = {:s}\n'.format(label['parse'])
+                        parse_code += 'event.fields[name] = parser(mo.group(ind+1))'
+                        exec(parse_code)
+                else:
+                    for ind,label in enumerate(field_def['labels']):
+                        name = label['name']
+                        event.fields[name] = val
     sys.stdout.write('\n')
     #print(cnt)
 
@@ -103,8 +108,9 @@ def create_table(cur, table_def):
 def insert_rows(cur, table, rows):
     cur.execute('begin transaction;')
     for row in rows:
+        row = ["'{}'".format(x) for x in row]
         entry = ','.join(row)
-        cmd = 'insert into {:s} table values {:s};'.format(table, entry)
+        cmd = 'insert into {:s} (Timestamp,Eid) values ({:s});'.format(table, entry)
         cur.execute(cmd)
     cur.execute('commit;')
 
@@ -131,6 +137,23 @@ def parse_args():
 
     return parser.parse_args()
 
+
+table_def_events = {
+    'name' : 'event',
+    'columns' : [
+        {
+            'label' : 'Timestamp',
+            'type' : 'int'
+        },
+        {
+            'label' : 'Eid',
+            'type' : 'int'
+        }
+    ],
+    'primary_key' : ['Timestamp'],
+    'indexes' : [['Eid']]
+}
+
 if __name__ == '__main__':
     args = parse_args()
 
@@ -146,13 +169,15 @@ if __name__ == '__main__':
             cur = con.cursor()
         table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
         create_table(cur, table_def)
+        create_table(cur, table_def_events)
     elif args.cmd == 'db' and args.subcmd == 'import':
         con.close()
         import_csv(args.database, 'log', args.csv_file)
     elif args.cmd == 'parse' and args.subcmd == 'events':
         event_defs = config['events']
         events = parse_events(event_defs, cur)
-        #print(events[0])
+        rows = [(x.fields['timestamp'],x.eid) for x in events]
+        insert_rows(cur, 'event', rows)
 
 """
 TODO

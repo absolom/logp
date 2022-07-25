@@ -4,9 +4,9 @@ events:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
-      - regex: [Timestamp, '(\d+)']
+      - regex: [Timestamp, null]
         labels:
-          - { name: timestamp, parse: 'lambda x: int(x)' }
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: None, to: open}
   - match: [Msg, 'Command started processing']
@@ -14,6 +14,9 @@ events:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: open, to: processing}
   - match: [Msg, 'Dispatched command']
@@ -22,6 +25,9 @@ events:
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
           - { name: subtag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: processing, to: response}
       - {sm: subtag, from: None, to: open}
@@ -30,6 +36,9 @@ events:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: processing, to: complete}
   - match: [Msg, 'Response received for']
@@ -37,6 +46,9 @@ events:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: response, to: complete}
       - {sm: subtag, from: open, to: None}
@@ -47,11 +59,17 @@ events:
           - regex: [Msg, 'Response status : ({:d})']
             labels:
               - { name: response, parse: 'lambda x: int(x)' }
+          - regex: [Timestamp, null]
+            labels:
+              - { name: timestamp, parse: null }
   - match: [Msg, 'Command complete']
     field_defs:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:
           - { name: tag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
     transitions:
       - {sm: ctag, from: complete, to: None}
 
