@@ -5,6 +5,9 @@ import re
 import pprint
 import sys
 import argparse
+import csv
+import os
+import subprocess
 
 class Event:
     def __init__(self, eid):
@@ -69,7 +72,7 @@ def parse_events(event_defs, cur):
                     parse_code += 'event.fields[name] = parser(mo.group(ind+1))'
                     exec(parse_code)
     sys.stdout.write('\n')
-    print(cnt)
+    #print(cnt)
 
     return events
 
@@ -77,59 +80,79 @@ def create_table(cur, table_def):
     # Create table
     name = table_def['name']
     cmd = 'create table {:s} ('.format(name)
-    for label,typ in table_def['columns']:
+    cols = table_def['columns']
+    for ind in range(0,len(cols)):
+        label = cols[ind]['label']
+        typ = cols[ind]['type']
         cmd += '{:s} {:s}'.format(label,typ)
-        if col in table_def['primary_key']:
+        if label in table_def['primary_key']:
             cmd += ' not null'
         cmd += ','
     cmd += 'primary key ({:s})'.format(','.join(table_def['primary_key']))
     cmd += ');'
     cur.execute(cmd)
+    print('Table created with : {:s}'.format(cmd))
 
     # Create indexes
-    for index in table_def['indexes']:
+    for ind,index in enumerate(table_def['indexes']):
         sql_cols = ','.join(index)
         cmd = 'create index ind{:d}_{:s} on {:s} ({:s});'.format(ind,name,name,sql_cols)
         cur.execute(cmd)
+        print('Index created with : {:s}'.format(cmd))
 
 def insert_rows(cur, table, rows):
     cur.execute('begin transaction;')
     for row in rows:
-        cmd = 'insert into {:s} table values {:s};'
+        entry = ','.join(row)
+        cmd = 'insert into {:s} table values {:s};'.format(table, entry)
         cur.execute(cmd)
     cur.execute('commit;')
+
+def import_csv(db_filename, table, csv_filename):
+    cmd = '.import --csv --skip 1 {:s} {:s}'.format(csv_filename, table)
+    subprocess.check_call('sqlite3 {:s} "{:s}"'.format(db_filename, cmd), shell=True)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Log analysis utility.')
     parser.add_argument('--config', default='config.yaml', help='YAML file with definitions for logs (default config.yaml).')
+    parser.add_argument('--database', default='log.db', help='Sqlite3 database filename (default log.db).')
     subparsers = parser.add_subparsers(dest='cmd', required=True, help='')
 
     parser_db = subparsers.add_parser('db', help='Sqlite3 database creation and manipulation.')
     subparsers_db = parser_db.add_subparsers(dest='subcmd', required=True, help='')
-    parser_db_create = subparsers_db.add_parser('create', help='Create empty database.')
+    parser_db_create = subparsers_db.add_parser('init', help='Initializes tables.')
     parser_db_import = subparsers_db.add_parser('import', help='Populate DB from csv file.')
     parser_db_import.add_argument('csv_file', help='File to import data from.')
 
     parser_parse = subparsers.add_parser('parse', help='Parse data out of the logs.')
     subparsers_parse = parser_parse.add_subparsers(dest='subcmd', required=True, help='')
     parser_parse_events = subparsers_parse.add_parser('events', help='Parse all events.')
-    #parser_parse_events.add_argument('--nosave', help='Generate events but do not 
-
-    # parser_db_import = subparsers_db.add_parser('import', help='Populate DB from csv file.')
-    # parser_db_import.add_argument('csv_file', help='File to import data from.')
+    # parser_parse_events.add_argument('--nosave', help='Generate events but do not 
 
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = parse_args()
 
-    if args.cmd == 'parse' and args.subcmd == 'events':
-        event_defs = load_yaml(args.config)['events']
-        con = sqlite3.connect('logs.db')
-        cur = con.cursor()
-        events = parse_events(event_defs, cur)
+    config = load_yaml(args.config)
+    con = sqlite3.connect(args.database)
+    cur = con.cursor()
 
-    print(events[0])
+    if args.cmd == 'db' and args.subcmd == 'init':
+        if os.path.isfile(args.database):
+            con.close()
+            os.remove(args.database)
+            con = sqlite3.connect(args.database)
+            cur = con.cursor()
+        table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
+        create_table(cur, table_def)
+    elif args.cmd == 'db' and args.subcmd == 'import':
+        con.close()
+        import_csv(args.database, 'log', args.csv_file)
+    elif args.cmd == 'parse' and args.subcmd == 'events':
+        event_defs = config['events']
+        events = parse_events(event_defs, cur)
+        #print(events[0])
 
 """
 TODO

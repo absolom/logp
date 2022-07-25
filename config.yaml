@@ -73,9 +73,9 @@ tables:
       - label: Timestamp
         type: int
       - label: Module
-        type: enum(Mod1,Mod2,Mod3,Mod4,Mod5,Mod6)
+        type: text check( Module in ('Mod1','Mod2','Mod3','Mod4','Mod5','Mod6'))
       - label: Submodule
-        type: enum(Submod1,Submod2,Submod3,Submod4,Submod5,Submod6,Submod7,Submod8,Submod9,Submod10,Submod11,Submod12,Submod13,Submod14,Submod15,Submod16)
+        type: text check( Submodule in ('Submod1','Submod2','Submod3','Submod4','Submod5','Submod6','Submod7','Submod8','Submod9','Submod10','Submod11','Submod12','Submod13','Submod14','Submod15','Submod16'))
       - label: Msg
         type: text
       - label: Data1
