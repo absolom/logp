@@ -181,6 +181,15 @@ if __name__ == '__main__':
 
 """
 TODO
+
+-After finding all of the state transitions, how should these be stored?
+  - Events get stored in a table that links timestamps (primary key of log
+    table) to event types.
+    - Should event id be added as a colum to the main table?
+  - Another table could be added for state transitions, again linking
+    events/timestamps to sm type and transition.
+  -Would the above tables allow fast generation of SM instance data?
+
 - Figure out stages of processing.
   - Process events (specific eid's or events tied to a specific SM, a logical
     set of eid's can be defined and referenced by a label e.g. BE_Errors)
@@ -194,6 +203,10 @@ TODO
     -Handle lossy events here (generate implicit transitions for missing events)
   - Generate visualizations
     - Histograms, etc.
+
+-How can event fields be stored in the database?
+  - Have a table for each event type? Seems like it would be neccesary as the
+    number and type of fields vary by event
 
 - Log parsing will be done on demand instead of all or nothing
 
