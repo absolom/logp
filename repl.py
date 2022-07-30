@@ -32,15 +32,19 @@ def replcmdquitter(func):
     gCmdQuitters.append(func)
     return func
 
-def replcmd(func):
-    name = func.__name__[4:]
-    gReplCmds[name] = func
-    tokens = name.split('_')
-    for lvl,token in enumerate(tokens):
-        if len(gCmds) <= lvl:
-            gCmds.append(set())
-        gCmds[lvl].add(token)
-    return func
+def replcmd(quitter=False):
+    def ret(func):
+        name = func.__name__[4:]
+        gReplCmds[name] = func
+        tokens = name.split('_')
+        for lvl,token in enumerate(tokens):
+            if len(gCmds) <= lvl:
+                gCmds.append(set())
+            gCmds[lvl].add(token)
+        if quitter:
+            gCmdQuitters.append(func)
+        return func
+    return ret
 
 def get_help():
     cmds = [gReplCmds[x] for x in gReplCmds]

@@ -139,7 +139,7 @@ def parse_args():
 
     return parser.parse_args()
 
-@replcmd
+@replcmd()
 def cmd_db_init(args, con):
     """doc help string"""
     if os.path.isfile(args.database):
@@ -152,13 +152,13 @@ def cmd_db_init(args, con):
     create_table(cur, table_def_events)
     return 'db init success'
 
-@replcmd
+@replcmd()
 def cmd_help(args, con):
     """Prints this help"""
     ret = get_help()
     return ret
 
-@replcmdquitter
+@replcmd(quitter=True)
 def cmd_quit(args, con):
     """Exits"""
     pass
