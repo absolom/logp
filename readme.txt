@@ -37,6 +37,10 @@ database and running data analysis tools.
   print([x.start().get('Timestamp') for x in err_instances])
 
 - The distribution of times each tag of a SM is used
+  instances = get_sm_instances(state_machine_name)
+  tags = [x.get('ctag') for x in instances)
+  plt = histogram(tags)
+  plt.show()
 
 - Other ideas
   eid = lookup_eid_by_match('Starting REM load')
