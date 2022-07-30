@@ -114,7 +114,6 @@ def enter_repl(*pargs, prompt='> ', **kwargs):
         while True:
             ch = getch()
             if ctrlcode:
-                #breakpoint()
                 ctrlcode += ch
                 if ch != '[':
                     term_cmd = parse_ctrlcode(ctrlcode)
