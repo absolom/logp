@@ -1,15 +1,13 @@
 
 import yaml
 import sqlite3
-import re
 import pprint
 import sys
 import argparse
 import csv
 import os
 import subprocess
-import tty
-import termios
+from repl import enter_repl, replcmd, replcmdquitter, get_help
 
 class Event:
     def __init__(self, eid):
@@ -141,26 +139,13 @@ def parse_args():
 
     return parser.parse_args()
 
-gReplCmds = set()
-gCmds = []
-
-def replcmd(func):
-    gReplCmds.add(func)
-    name = func.__name__[4:]
-    tokens = name.split('_')
-    for lvl,token in enumerate(tokens):
-        if len(gCmds) <= lvl:
-            gCmds.append(set())
-        gCmds[lvl].add(token)
-    return func
-
 @replcmd
-def cmd_db_init(con, database):
+def cmd_db_init(args, con):
     """doc help string"""
-    if os.path.isfile(database):
+    if os.path.isfile(args.database):
         con.close()
-        os.remove(database)
-        con = sqlite3.connect(database)
+        os.remove(args.database)
+        con = sqlite3.connect(args.database)
         cur = con.cursor()
     table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
     create_table(cur, table_def)
@@ -168,151 +153,16 @@ def cmd_db_init(con, database):
     return 'db init success'
 
 @replcmd
-def cmd_help():
+def cmd_help(args, con):
     """Prints this help"""
-    cmds = list(gReplCmds)
-    cmds = [(x.__name__[4:].replace('_',' '),x.__doc__) for x in cmds]
-    cmds.sort()
-    ret = ''
-    for name,doc in cmds:
-        ret += f'\n{name} - {doc}'
+    ret = get_help()
     return ret
 
-def match_cmd(cmd, subcmd):
-    def match_by_unique_prefix(cmd,cmds):
-        ret = None
-        if cmd:
-            for ind in range(1,len(cmd)+1):
-                substr = cmd[0:ind]
-                matches = [x for x in cmds if re.match(r'^{:s}'.format(substr), x) and len(cmd) <= len(x)]
-                if len(matches) == 1:
-                    ret = matches[0]
-        return ret
-    rcmd = match_by_unique_prefix(cmd,gCmds[0])
-    rsubcmd = match_by_unique_prefix(subcmd,gCmds[1])
-    return (rcmd,rsubcmd)
-
-@replcmd
-def cmd_quit():
+@replcmdquitter
+def cmd_quit(args, con):
     """Exits"""
     pass
 
-def process_cmd(args, con, database):
-    cmd = args[0]
-    subcmd = None
-    if len(args) > 1:
-        subcmd = args[1]
-    (cmd,subcmd) = match_cmd(cmd, subcmd)
-
-    ret = None
-    done = False
-    if cmd == 'db' and subcmd == 'init':
-        ret = cmd_db_init(con, database)
-    elif cmd == 'help':
-        ret = cmd_help()
-    elif cmd == 'quit':
-        done = True
-
-    return (ret,done)
-
-def enter_repl(args, con, prompt='> '):
-    def getch():
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-
-    def should_echo(ch):
-        if ch == '\r': # TODO : Why we get \r instead of \n in WSL?
-            return '\n'
-        else:
-            return None
-
-    def should_continue(ch):
-        return False
-
-    def should_break(ch):
-        if ch == '\r':
-            return True
-        else:
-            return False
-
-    def parse_ctrlcode(code):
-        if code == '\x1b[A':
-            return 'UP_ARROW'
-        elif code == '\x1b[B':
-            return 'DOWN_ARROW'
-        elif code == '\x1b[C':
-            return 'LEFT_ARROW'
-        elif code == '\x1b[D':
-            return 'RIGHT_ARROW'
-        else:
-            return None
-
-    while True:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        line = ''
-        ctrlcode = None
-        while True:
-            ch = getch()
-            if ctrlcode:
-                #breakpoint()
-                ctrlcode += ch
-                if ch != '[':
-                    term_cmd = parse_ctrlcode(ctrlcode)
-                    if term_cmd == 'UP_ARROW':
-                        sys.stdout.write('Not implemented : UP_ARROW\n')
-                    elif term_cmd == 'DOWN_ARROW':
-                        sys.stdout.write('Not implemented : DOWN_ARROW\n')
-                    elif term_cmd == 'RIGHT_ARROW':
-                        sys.stdout.write('Not implemented : RIGHT_ARROW\n')
-                    elif term_cmd == 'LEFT_ARROW':
-                        sys.stdout.write('Not implemented : LEFT_ARROW\n')
-                    ctrlcode = None
-                    break
-                continue
-            else:
-                if ch == '\x1b':
-                    ctrlcode = ch
-                    continue
-                echo_ch = should_echo(ch)
-                if echo_ch is not None:
-                    sys.stdout.write(echo_ch)
-                if should_continue(ch):
-                    continue
-                if should_break(ch):
-                    break
-
-            line += ch
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-        if not line.strip():
-            continue
-        (outp,done) = process_cmd(line.split(' '), con, args.database)
-        if done:
-            return
-        if outp is None:
-            outp = 'Command not recognized...'
-        sys.stdout.write(f'{outp}\n\n')
-
-def enter_repl_old(args, con, prompt='> '):
-    while True:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        line = sys.stdin.readline().strip()
-        if not line:
-            continue
-        (outp,done) = process_cmd(line.split(' '), con, args.database)
-        if done:
-            return
-        if outp is None:
-            outp = 'Command not recognized...'
-        sys.stdout.write(f'{outp}\n\n')
 
 table_def_events = {
     'name' : 'event',
