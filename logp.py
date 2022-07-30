@@ -7,7 +7,13 @@ import argparse
 import csv
 import os
 import subprocess
-from repl import enter_repl, replcmd, replcmdquitter, get_help
+submodule_imports = ['repl']
+
+from pathlib import Path
+script_dir = Path(__file__).parent.absolute()
+for dep in submodule_imports:
+    sys.path.append(str(script_dir) + f'/{dep}')
+    exec(f'import {dep}')
 
 class Event:
     def __init__(self, eid):
@@ -139,7 +145,7 @@ def parse_args():
 
     return parser.parse_args()
 
-@replcmd()
+@repl.replcmd()
 def cmd_db_init(args, con):
     """doc help string"""
     if os.path.isfile(args.database):
@@ -152,13 +158,13 @@ def cmd_db_init(args, con):
     create_table(cur, table_def_events)
     return 'db init success'
 
-@replcmd()
+@repl.replcmd()
 def cmd_help(args, con):
     """Prints this help"""
-    ret = get_help()
+    ret = repl.get_help()
     return ret
 
-@replcmd(quitter=True)
+@repl.replcmd(quitter=True)
 def cmd_quit(args, con):
     """Exits"""
     pass
@@ -188,7 +194,7 @@ if __name__ == '__main__':
     cur = con.cursor()
 
     if args.cmd == 'repl':
-        enter_repl(args, con, prompt='logp> ')
+        repl.enter_repl(args, con, prompt='logp> ')
     elif args.cmd == 'db' and args.subcmd == 'init':
         if os.path.isfile(args.database):
             con.close()
