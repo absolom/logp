@@ -7,6 +7,7 @@ import argparse
 import csv
 import os
 import subprocess
+import re
 submodule_imports = ['repl']
 
 from pathlib import Path
@@ -25,6 +26,14 @@ class Event:
         ret = 'Event Id : {:d} - {:s}'.format(self.eid, pp.pformat(self.fields))
         return ret
 
+class SmInstance:
+    def __init__(self, tag):
+        self.tag = tag
+        self.events = []
+
+    def add_event(self, event):
+        self.events.append(event)
+
 def load_yaml(filename):
     with open(filename, 'r') as f:
         data = f.read()
@@ -37,6 +46,96 @@ def get_headers(cur, table_name):
     for row in rows:
         headers.append(row[1])
     return headers
+
+def find_sm_open_events(sm_name, events):
+    open_eids = []
+    for eid,event in enumerate(events):
+        for transition in event['transitions']:
+            if transition['sm'] == sm_name and transition['from'] == 'None':
+                open_eids.append(eid)
+    return open_eids
+
+def find_sm_close_events(sm_name, events):
+    close_eids = []
+    for eid,event in enumerate(events):
+        for transition in event['transitions']:
+            if transition['sm'] == sm_name and transition['to'] == 'None':
+                close_eids.append(eid)
+    return close_eids
+
+def find_sm_events(sm_name, event_defs):
+    sm_eids = []
+    for ind,edef in enumerate(event_defs):
+        if [x['sm'] for x in edef['transitions'] if x['sm'] == sm_name]:
+            sm_eids.append(ind)
+    return sm_eids
+
+def query_event_table(eids, cur):
+    cmd = 'select * from event where Eid == '
+    cmd += ' or Eid == '.join([str(x) for x in eids])
+    return cur.execute(cmd)
+
+def get_sm_instances(sm_name, config, cur):
+    headers = get_headers(cur, 'log')
+    hind = { headers[x] : x for x in range(0,len(headers)) }
+
+    event_defs = config['events']
+    sm_events = find_sm_events(sm_name, event_defs)
+    rows = query_event_table(sm_events, cur)
+
+    eid_open = find_sm_open_events('ctag', config['events'])
+    eid_close = find_sm_close_events('ctag', config['events'])
+    print(eid_open)
+    print(eid_close)
+
+    instances = []
+    open_instances = {}
+    for row in rows:
+        eid = row[1]
+        # TODO : Grab the entry from the log table here and pass it to parse_event
+        # Probably need a second cursor
+        # TODO : Abstract the data source, don't write code dependent on
+        # cursor/connection, just dep on the data source
+        event = parse_event(eid, event_defs, row, hind)
+        tag = event.get_tag()
+
+        if eid in eid_open:
+            sm = SmInstance(tag)
+            open_instances[tag] = sm
+            instances.append(sm)
+        else:
+            sm = open_instances[tag]
+
+        if eid in eid_close:
+            open_instances[tag] = None
+
+        sm.add_event(event)
+
+    print(len(instances))
+
+def parse_event(eid, event_defs, row, hind):
+    event = Event(eid)
+    #events.append(event)
+    event_def = event_defs[eid]
+    for field_def in event_def['field_defs']:
+        col = field_def['regex'][0]
+        regex = field_def['regex'][1]
+        breakpoint()
+        val = row[hind[col]]
+        if regex:
+            mo = re.search(regex, val)
+            if not mo:
+                raise RuntimeError('Match not found where expected')
+            for ind,label in enumerate(field_def['labels']):
+                name = label['name']
+                parse_code = 'parser = {:s}\n'.format(label['parse'])
+                parse_code += 'event.fields[name] = parser(mo.group(ind+1))'
+                exec(parse_code)
+        else:
+            for ind,label in enumerate(field_def['labels']):
+                name = label['name']
+                event.fields[name] = val
+    return event
 
 def parse_events(event_defs, cur):
     match_strings = [x['match'] for x in event_defs]
@@ -87,7 +186,7 @@ def parse_events(event_defs, cur):
 
     return events
 
-def create_table(cur, table_def):
+def create_table(cur, table_def, noindex=False, nokey=False):
     # Create table
     name = table_def['name']
     cmd = 'create table {:s} ('.format(name)
@@ -95,16 +194,24 @@ def create_table(cur, table_def):
     for ind in range(0,len(cols)):
         label = cols[ind]['label']
         typ = cols[ind]['type']
+        if ind:
+            cmd += ','
         cmd += '{:s} {:s}'.format(label,typ)
-        if label in table_def['primary_key']:
-            cmd += ' not null'
-        cmd += ','
-    cmd += 'primary key ({:s})'.format(','.join(table_def['primary_key']))
+        if not nokey:
+            if label in table_def['primary_key']:
+                cmd += ' not null'
+    if not nokey:
+        cmd += ',primary key ({:s})'.format(','.join(table_def['primary_key']))
     cmd += ');'
     cur.execute(cmd)
     print('Table created with : {:s}'.format(cmd))
 
     # Create indexes
+    if not noindex:
+        create_table_indexes(cur, table_def)
+
+def create_table_indexes(cur, table_def):
+    name = table_def['name']
     for ind,index in enumerate(table_def['indexes']):
         sql_cols = ','.join(index)
         cmd = 'create index ind{:d}_{:s} on {:s} ({:s});'.format(ind,name,name,sql_cols)
@@ -146,29 +253,57 @@ def parse_args():
     return parser.parse_args()
 
 @repl.replcmd()
-def cmd_db_init(args, con):
-    """doc help string"""
+def cmd_db_import(cargs, args):
+    """Imports from supplied csv file."""
+    if len(cargs) != 1:
+        return None
+    import datetime
+    ts = datetime.datetime.now().timestamp()
+    import_csv(args.database, 'log', cargs[0])
+    ret = 'Total time {:f}m'.format((datetime.datetime.now().timestamp() - ts) / 60.0)
+    # con = sqlite3.connect(args.database)
+    # cur = con.cursor()
+    # config = load_yaml(args.config)
+    # table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
+    # create_table(cur, table_def, noindex=True, nokey=True)
+    return ret
+
+@repl.replcmd()
+def cmd_db_init(cargs, args):
+    """Initializes the database (wipes any existing data) and creates new empty tables."""
     if os.path.isfile(args.database):
-        con.close()
         os.remove(args.database)
-        con = sqlite3.connect(args.database)
-        cur = con.cursor()
+    con = sqlite3.connect(args.database)
+    cur = con.cursor()
     table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
-    create_table(cur, table_def)
+    create_table(cur, table_def, noindex=True, nokey=True)
     create_table(cur, table_def_events)
     return 'db init success'
 
 @repl.replcmd()
-def cmd_help(args, con):
-    """Prints this help"""
+def cmd_parse_events(cargs, args):
+    """Parses all (or selected) events from the config into their own table for faster queries."""
+    import datetime
+    ts = datetime.datetime.now().timestamp()
+    event_defs = config['events']
+    con = sqlite3.connect(args.database)
+    cur = con.cursor()
+    events = parse_events(event_defs, cur)
+    rows = [(x.fields['timestamp'],x.eid) for x in events]
+    insert_rows(cur, 'event', rows)
+    ret = 'Total time {:f}m\nInserted {:d} rows'.format((datetime.datetime.now().timestamp() - ts) / 60.0, len(rows))
+    return ret
+
+@repl.replcmd()
+def cmd_help(cargs, args):
+    """Prints this help."""
     ret = repl.get_help()
     return ret
 
 @repl.replcmd(quitter=True)
-def cmd_quit(args, con):
-    """Exits"""
-    pass
-
+def cmd_quit(cargs, args):
+    """Exits."""
+    return ''
 
 table_def_events = {
     'name' : 'event',
@@ -187,6 +322,7 @@ table_def_events = {
 }
 
 if __name__ == '__main__':
+    #global gCon, gCur
     args = parse_args()
 
     config = load_yaml(args.config)
@@ -194,7 +330,8 @@ if __name__ == '__main__':
     cur = con.cursor()
 
     if args.cmd == 'repl':
-        repl.enter_repl(args, con, prompt='logp> ')
+        con.close()
+        repl.enter_repl(args, prompt='logp> ')
     elif args.cmd == 'db' and args.subcmd == 'init':
         if os.path.isfile(args.database):
             con.close()
@@ -203,7 +340,7 @@ if __name__ == '__main__':
             cur = con.cursor()
         table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
         create_table(cur, table_def)
-        create_table(cur, table_def_events)
+        create_table(cur, table_def_events, noindex=True)
     elif args.cmd == 'db' and args.subcmd == 'import':
         con.close()
         import_csv(args.database, 'log', args.csv_file)
