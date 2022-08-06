@@ -42,6 +42,8 @@ database and running data analysis tools.
   plt = histogram(tags)
   plt.show()
 
+- Generate report of how many instances of each SM
+
 - Other ideas
   eid = lookup_eid_by_match('Starting REM load')
   events = get_events_by_eid(eid)

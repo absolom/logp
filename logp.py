@@ -171,9 +171,21 @@ class DataSourceCsv:
 
 class DataSourceSqlite:
 
-    def __init__(self, con):
-        self.con = con
+    def __init__(self, filename):
+        self.filename = filename
+        self.con = sqlite3.connect(filename)
         self.cur = con.cursor()
+
+    def init(self, table_def):
+        self.con.close()
+        if os.path.isfile(self.filename):
+            os.remove(self.filename)
+        self.con = sqlite3.connect(self.filename)
+        self.cur = self.con.cursor()
+        create_table(self.cur, table_def, noindex=True, nokey=True)
+
+    def close(self):
+        self.con.close()
 
     def get_rows_from_match(self, match_strings):
         """match_strings is list of (column_name,search_string)"""
@@ -191,8 +203,29 @@ class DataSourceSqlite:
         return headers
 
     def save_events(self, events):
+        self.cur.execute('alter table log add column Eid int;')
+        for event in events:
+            ts = event.fields['timestamp']
+            eid = event.eid
+            cmd = 'update log set Eid = ? where Timestamp = ?;'
+            self.cur.execute(cmd, (eid,ts))
+        self.con.commit()
+
+    def save_events_old(self, events):
         rows = [(x.fields['timestamp'], x.eid) for x in events]
-        insert_rows(self.cur, 'event', rows)
+        try:
+            insert_rows(self.cur, 'event', rows)
+        except:
+            raise
+            #breakpoint()
+
+    def get_rows_by_eid(self, eids):
+        cmd = 'select * from log where Timestamp=(select Timestamp from event where Eid == '
+        cmd += ' or Eid == '.join([str(x) for x in eids])
+        cmd += ');'
+
+        rows = self.cur.execute(cmd)
+        return rows
 
 def parse_events(event_defs, data):
     match_strings = [x['match'] for x in event_defs]
@@ -330,13 +363,9 @@ def cmd_db_import(cargs, args, data_db, data_csv):
 @repl.replcmd()
 def cmd_db_init(cargs, args, data_db, data_csv):
     """Initializes the database (wipes any existing data) and creates new empty tables."""
-    if os.path.isfile(args.database):
-        os.remove(args.database)
-    con = sqlite3.connect(args.database)
-    cur = con.cursor()
+    config = load_yaml(args.config)
     table_def = [x for x in config['tables'] if x['name'] == 'log'][0]
-    create_table(cur, table_def, noindex=True, nokey=True)
-    create_table(cur, table_def_events)
+    data_db.init(table_def)
     return 'db init success'
 
 @repl.replcmd()
@@ -354,11 +383,66 @@ def cmd_set_mode(cargs, args, data_db, data_csv):
     global gMode
     gMode = cargs[0]
 
+
+def find_sm_names(event_defs):
+    names = set()
+    for event in event_defs:
+        for transition in event['transitions']:
+            names.add(transition['sm'])
+    return names
+
+def parse_instances(event_defs, data_db):
+    headers = data_db.get_headers()
+    hind = { headers[x] : x for x in range(0,len(headers)) }
+
+    event_defs = config['events']
+    sm_names = find_sm_names(event_defs)
+
+    ret = {}
+    for sm_name in sm_names:
+        sm_eids = find_sm_events(sm_name, event_defs)
+
+        (rows,eids) = data_db.get_rows_by_eid(sm_eids)
+
+        eid_open = find_sm_open_events('ctag', config['events'])
+        eid_close = find_sm_close_events('ctag', config['events'])
+
+        instances = []
+        open_instances = {}
+        for row,eid in zip(rows, eids):
+            event = parse_event(eid, event_defs, row, hind)
+            tag = event.get_tag()
+
+            if eid in eid_open:
+                sm = SmInstance(tag)
+                open_instances[tag] = sm
+                instances.append(sm)
+            else:
+                sm = open_instances[tag]
+
+            if eid in eid_close:
+                open_instances[tag] = None
+
+            sm.add_event(event)
+        ret[sm_name] = instances
+
+    print(len(instances))
+
+@repl.replcmd()
+def cmd_parse_instances(cargs, args, data_db, data_csv):
+    """Parses all (or selected) statemachine instances from the config into their own table(s) for faster queries."""
+    config = load_yaml(args.config)
+    event_defs = config['events']
+    instances = parse_instances(event_defs, data_db)
+    # for instance_name in instances:
+    #     data_db.save_instances(instance_name, instances[instance_name])
+
 @repl.replcmd()
 def cmd_parse_events(cargs, args, data_db, data_csv):
     """Parses all (or selected) events from the config into their own table for faster queries."""
     import datetime
     ts = datetime.datetime.now().timestamp()
+    config = load_yaml(args.config)
     event_defs = config['events']
     events = parse_events(event_defs, data_db)
     data_db.save_events(events)
@@ -372,6 +456,7 @@ def cmd_parse_eventscsv(cargs, args, data_db, data_csv):
         return None
     import datetime
     ts = datetime.datetime.now().timestamp()
+    config = load_yaml(args.config)
     event_defs = config['events']
     events = parse_events(event_defs, data_csv)
     data_csv.save_events(events)
@@ -428,12 +513,13 @@ if __name__ == '__main__':
     con = sqlite3.connect(args.database)
     cur = con.cursor()
 
-    data_db = DataSourceSqlite(sqlite3.connect(args.database))
+    data_db = DataSourceSqlite(args.database)
     data_csv = DataSourceCsv(args.csv)
 
     if args.cmd == 'repl':
         con.close()
         repl.enter_repl(args, data_db, data_csv, prompt='logp> ')
+        data_db.close()
     elif args.cmd == 'script':
         # args.filename
         run_test_script(config, data_db, data_csv)
