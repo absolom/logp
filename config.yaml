@@ -32,6 +32,7 @@ events:
       - {sm: ctag, from: processing, to: response}
       - {sm: subtag, from: None, to: open}
   - match: [Msg, 'Cache hit, early return']
+    tag: [interest]
     field_defs:
       - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
         labels:

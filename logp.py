@@ -8,6 +8,7 @@ import csv
 import os
 import subprocess
 import re
+from util import load_yaml
 submodule_imports = ['repl']
 
 from pathlib import Path
@@ -20,11 +21,17 @@ class Event:
     def __init__(self, eid):
         self.eid = eid
         self.fields = {}
+        self.tags = None
 
     def __str__(self):
         pp = pprint.PrettyPrinter(indent=2)
         ret = 'Event Id : {:d} - {:s}'.format(self.eid, pp.pformat(self.fields))
         return ret
+
+    def add_tag(self, tag):
+        if not self.tags:
+            self.tags = []
+        self.tags.append(tag)
 
 class SmInstance:
     def __init__(self, tag):
@@ -34,11 +41,6 @@ class SmInstance:
     def add_event(self, event):
         self.events.append(event)
 
-def load_yaml(filename):
-    with open(filename, 'r') as f:
-        data = f.read()
-
-    return yaml.safe_load(data)
 
 def get_headers(cur, table_name):
     headers = []
@@ -137,20 +139,71 @@ def parse_event(eid, event_defs, row, hind):
                 event.fields[name] = val
     return event
 
-def parse_events(event_defs, cur):
+class DataSourceCsv:
+
+    def __init__(self, filename):
+        self.filename = filename
+        with open(self.filename, newline='') as f:
+            rdr = csv.reader(f)
+            self.headers = rdr.__next__()
+            self.hind = {}
+            for ind,col in enumerate(self.headers):
+                self.hind[col] = ind
+        self.events = None
+
+    def get_rows_from_match(self, match_strings):
+        ret = []
+        with open(self.filename, newline='') as f:
+            rdr = csv.reader(f)
+            rdr.__next__() # skip header
+            for row in rdr:
+                for col,key in match_strings:
+                    if key in row[self.hind[col]]:
+                        ret.append(row)
+        return ret
+
+
+    def get_headers(self):
+        return self.headers
+
+    def save_events(self, events):
+        self.events = events
+
+class DataSourceSqlite:
+
+    def __init__(self, con):
+        self.con = con
+        self.cur = con.cursor()
+
+    def get_rows_from_match(self, match_strings):
+        """match_strings is list of (column_name,search_string)"""
+        sql_match = ["instr({:s},'{:s}') != 0".format(x[0], x[1]) for x in match_strings]
+        sql_match = ' or '.join(sql_match)
+        rows = self.cur.execute('select * from log where {:s};'.format(sql_match))
+        return rows
+
+    def get_headers(self):
+        table_name = 'log'
+        headers = []
+        rows = self.cur.execute('pragma table_info({:s});'.format(table_name))
+        for row in rows:
+            headers.append(row[1])
+        return headers
+
+    def save_events(self, events):
+        rows = [(x.fields['timestamp'], x.eid) for x in events]
+        insert_rows(self.cur, 'event', rows)
+
+def parse_events(event_defs, data):
     match_strings = [x['match'] for x in event_defs]
 
-    sql_match = ["instr({:s},'{:s}') != 0".format(x[0],x[1]) for x in match_strings]
-    sql_match = ' or '.join(sql_match)
-
-    headers = get_headers(cur, 'log')
+    headers = data.get_headers()
     hind = { headers[x] : x for x in range(0,len(headers)) }
-
-    # TODO : Faster to do a select for each match string or combined search?
 
     state_machine_events = { 'subtag' : [], 'sm' : [] }
 
-    rows = cur.execute('select * from log where {:s};'.format(sql_match))
+    rows = data.get_rows_from_match(match_strings)
+
     events = []
     cnt = 0
     for row in rows:
@@ -164,6 +217,9 @@ def parse_events(event_defs, cur):
             event = Event(eid)
             events.append(event)
             event_def = event_defs[eid]
+            if 'tag' in event_def:
+                for tag in event_def['tag']:
+                    event.add_tag(tag)
             for field_def in event_def['field_defs']:
                 col = field_def['regex'][0]
                 regex = field_def['regex'][1]
@@ -182,7 +238,6 @@ def parse_events(event_defs, cur):
                         name = label['name']
                         event.fields[name] = val
     sys.stdout.write('\n')
-    #print(cnt)
 
     return events
 
@@ -235,6 +290,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Log analysis utility.')
     parser.add_argument('--config', default='config.yaml', help='YAML file with definitions for logs (default config.yaml).')
     parser.add_argument('--database', default='log.db', help='Sqlite3 database filename (default log.db).')
+    parser.add_argument('--csv', default='log.csv', help='Log data (default log.csv).')
     subparsers = parser.add_subparsers(dest='cmd', required=True, help='')
 
     parser_db = subparsers.add_parser('db', help='Sqlite3 database creation and manipulation.')
@@ -250,10 +306,13 @@ def parse_args():
 
     parser_repl = subparsers.add_parser('repl', help='Enter the CLI.')
 
+    parser_script = subparsers.add_parser('script', help='Run the specified script.')
+    parser_script.add_argument('filename', help='Filename of the script.')
+
     return parser.parse_args()
 
 @repl.replcmd()
-def cmd_db_import(cargs, args):
+def cmd_db_import(cargs, args, data_db, data_csv):
     """Imports from supplied csv file."""
     if len(cargs) != 1:
         return None
@@ -269,7 +328,7 @@ def cmd_db_import(cargs, args):
     return ret
 
 @repl.replcmd()
-def cmd_db_init(cargs, args):
+def cmd_db_init(cargs, args, data_db, data_csv):
     """Initializes the database (wipes any existing data) and creates new empty tables."""
     if os.path.isfile(args.database):
         os.remove(args.database)
@@ -281,27 +340,52 @@ def cmd_db_init(cargs, args):
     return 'db init success'
 
 @repl.replcmd()
-def cmd_parse_events(cargs, args):
+def cmd_report_events(cargs, args, data_db, data_csv):
+    """Reports on what events were found."""
+    pass
+
+@repl.replcmd()
+def cmd_set_mode(cargs, args, data_db, data_csv):
+    """Sets the mode, either csv or db."""
+    if len(cargs) != 1:
+        return None
+    if cargs[0] not in ['db', 'csv']:
+        return None
+    global gMode
+    gMode = cargs[0]
+
+@repl.replcmd()
+def cmd_parse_events(cargs, args, data_db, data_csv):
     """Parses all (or selected) events from the config into their own table for faster queries."""
     import datetime
     ts = datetime.datetime.now().timestamp()
     event_defs = config['events']
-    con = sqlite3.connect(args.database)
-    cur = con.cursor()
-    events = parse_events(event_defs, cur)
-    rows = [(x.fields['timestamp'],x.eid) for x in events]
-    insert_rows(cur, 'event', rows)
-    ret = 'Total time {:f}m\nInserted {:d} rows'.format((datetime.datetime.now().timestamp() - ts) / 60.0, len(rows))
+    events = parse_events(event_defs, data_db)
+    data_db.save_events(events)
+    ret = 'Total time {:f}m\nFound {:d} events in DB'.format((datetime.datetime.now().timestamp() - ts) / 60.0, len(events))
     return ret
 
 @repl.replcmd()
-def cmd_help(cargs, args):
+def cmd_parse_eventscsv(cargs, args, data_db, data_csv):
+    """Parses all (or selected) events from the config into their own table for faster queries."""
+    if len(cargs) != 1:
+        return None
+    import datetime
+    ts = datetime.datetime.now().timestamp()
+    event_defs = config['events']
+    events = parse_events(event_defs, data_csv)
+    data_csv.save_events(events)
+    ret = 'Total time {:f}m\nFound {:d} events in CSV'.format((datetime.datetime.now().timestamp() - ts) / 60.0, len(events))
+    return ret
+
+@repl.replcmd()
+def cmd_help(cargs, args, data_db, data_csv):
     """Prints this help."""
     ret = repl.get_help()
     return ret
 
 @repl.replcmd(quitter=True)
-def cmd_quit(cargs, args):
+def cmd_quit(cargs, args, data_db, data_csv):
     """Exits."""
     return ''
 
@@ -321,17 +405,38 @@ table_def_events = {
     'indexes' : [['Eid']]
 }
 
+def run_test_script(config, data_db, data_csv):
+    event_defs = config['events']
+    events = parse_events(event_defs, data_csv)
+
+    bytag = {}
+    for event in events:
+        if event.tags:
+            for tag in event.tags:
+                if tag not in bytag:
+                    bytag[tag] = []
+                bytag[tag].append(event)
+
+    for tag in bytag:
+        print(f'{tag} : {len(bytag[tag])}')
+    print(len(events))
+
 if __name__ == '__main__':
-    #global gCon, gCur
     args = parse_args()
 
     config = load_yaml(args.config)
     con = sqlite3.connect(args.database)
     cur = con.cursor()
 
+    data_db = DataSourceSqlite(sqlite3.connect(args.database))
+    data_csv = DataSourceCsv(args.csv)
+
     if args.cmd == 'repl':
         con.close()
-        repl.enter_repl(args, prompt='logp> ')
+        repl.enter_repl(args, data_db, data_csv, prompt='logp> ')
+    elif args.cmd == 'script':
+        # args.filename
+        run_test_script(config, data_db, data_csv)
     elif args.cmd == 'db' and args.subcmd == 'init':
         if os.path.isfile(args.database):
             con.close()
@@ -346,7 +451,7 @@ if __name__ == '__main__':
         import_csv(args.database, 'log', args.csv_file)
     elif args.cmd == 'parse' and args.subcmd == 'events':
         event_defs = config['events']
-        events = parse_events(event_defs, cur)
+        events = parse_events(event_defs, data)
         rows = [(x.fields['timestamp'],x.eid) for x in events]
         insert_rows(cur, 'event', rows)
 
