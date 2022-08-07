@@ -133,7 +133,7 @@ def generate_data(num_rows, gen, filename, status_increment=100000):
 if __name__ == '__main__':
     # generate_data(10**6 * 40, GeneratorBasic(start_time=100000000))
     generator = GenerateStates(GeneratorBasic(start_time=100000000))
-    generate_data(10**4, generator, 'test_small.csv')
+    generate_data(10**6, generator, 'test_med_med.csv')
     #generate_data(10**6 * 40, generator, 'test.csv')
 
 
