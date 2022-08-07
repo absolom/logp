@@ -117,7 +117,7 @@ def find_event_lines(csv_filename, event_lines={}):
 def find_all_event_lines(config, csv_filename, sm_name=None):
     searches = []
     for event in config['events']:
-        if sm_name and not [x for x in event['transitions'] if x['sm'] == sm_name]:
+        if sm_name and sm_name not in [x['sm'] for x in event['transitions']]:
             continue
         # if [x for x in event['match'] if x[0]]:
         #     raise NotImplemented('No support for column matches yet.')
@@ -129,7 +129,10 @@ def find_all_event_lines(config, csv_filename, sm_name=None):
             search = '&'.join(search)
             search = '({:s})'.format(search)
             searches += search
-    subprocess.check_call("ag '{:s}' {:s} > tmp.ag".format('|'.join(searches), csv_filename), shell=True)
+    print(searches)
+    cmd = "ag --nonumbers '({:s})' {:s} > tmp.ag".format('|'.join(searches), csv_filename)
+    print(cmd)
+    subprocess.check_call(cmd, shell=True)
     with BufferedReverseReader('tmp.ag') as f:
         event_lines = list(f)
     return event_lines
@@ -194,6 +197,10 @@ def find_sm_instances(config, sm_name, event_lines, hind):
         event = parse_event(eid, event_defs[eid], line, hind)
         events.append(event)
 
+    print(len(events))
+
+    # TODO : Debug subtag instances not have both events
+
     # Create SM instances
     instances = []
     open_instances = {}
@@ -203,7 +210,7 @@ def find_sm_instances(config, sm_name, event_lines, hind):
         for transition in event_def['transitions']:
             sm = transition['sm']
             if sm == sm_name:
-                tag = event.fields['ctag']
+                tag = event.fields[sm_name]
                 from_state = transition['from']
                 #to_state = transition['to']
 
@@ -246,12 +253,12 @@ def find_sm_instances(config, sm_name, event_lines, hind):
 
 config = load_yaml('config2.yaml')
 #csv_filename = 'test_small.csv'
-csv_filename = 'log.csv'
+csv_filename = 'test.csv'
 #csv_filename = 'test_med.csv'
 #csv_filename = 'test_med_med.csv'
 
-#files = split_file(csv_filename)
-files = ['log.csv.seg0', 'log.csv.seg1', 'log.csv.seg2']
+files = split_file(csv_filename)
+#files = ['test.csv.seg0', 'test.csv.seg1', 'test.csv.seg2']
 
 with open(files[0], 'r', newline='') as f:
     rdr = csv.reader(f)
@@ -265,24 +272,33 @@ files.reverse()
 
 #import cProfile
 for file in files:
-    event_lines = {}
-
-    #lines = find_all_event_lines(config, file, sm_name='ctag')
-    lines = find_all_event_lines(config, file)
+    lines = find_all_event_lines(config, file, sm_name='ctag')
     instances = find_sm_instances(config, 'ctag', lines, hind)
-
-    lines = find_all_event_lines(config, file, sm_name='subtag')
-    instances = find_sm_instances(config, 'subtag', lines, hind)
-
     print(f'found {len(instances)} instances!')
 
+    # lines = find_all_event_lines(config, file, sm_name='subtag')
+    # instances = find_sm_instances(config, 'subtag', lines, hind)
+    # print(f'found {len(instances)} instances!')
+
+    breakpoint()
+
 """
+-parse all segment files as one file
 -parse X more lines
 -parse until X is true
--save parsing state to file so it can be resumed later
+
+-proper support for lossy logs
+  - add implicit transitions AND close instances if there is no valid transition to new found state
+
+-persistence
+  - save parsing state to file so it can be resumed later
+
 *add support for silver surfer
 -add support for multiprocessing
--handle lossy logs
--add support for relative events
+
+-linked sm's 
+  - sm instance that lives within the lifetime of another sm instance
+    e.g. subtag in example/test data
+
 """
 
