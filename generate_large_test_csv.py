@@ -50,7 +50,8 @@ class GenerateStates:
     def __init__(self, gen):
         self.gen = gen
         self.tags = {x : None for x in range(0,256)}
-        self.enable_lossy = True
+        self.tag_to_subtag = {x : None for x in range(0,256)}
+        self.enable_lossy = False
 
     def transition(self, tag):
         state = self.tags[tag]
@@ -75,6 +76,7 @@ class GenerateStates:
                 row = self.gen.row()
                 rows.append(row)
                 subtag = randint(0,255)
+                self.tag_to_subtag[tag] = subtag
                 row[3] = 'Dispatched command ctag : 0x{:02X} subtag : 0x{:02X}'.format(tag,subtag)
                 self.tags[tag] = 'dispatch'
         elif state == 'dispatch':
@@ -84,7 +86,8 @@ class GenerateStates:
             self.tags[tag] = 'response'
         elif state == 'response':
             row = self.gen.row()
-            row[3] = 'Command response received ctag : 0x{:02X}'.format(tag)
+            subtag = self.tag_to_subtag[tag]
+            row[3] = 'Command response received ctag : 0x{:02X} subtag : 0x{:02X}'.format(tag,subtag)
             rows.append(row)
             row = self.gen.row()
             row[3] = 'Response status : {:d}'.format(randint(0,9))
@@ -131,10 +134,9 @@ def generate_data(num_rows, gen, filename, status_increment=100000):
                     print('{:d} / {:d}, estimated time left {:d}m left'.format(int(entry_num/status_increment), int(num_rows/status_increment), est_time))
 
 if __name__ == '__main__':
-    # generate_data(10**6 * 40, GeneratorBasic(start_time=100000000))
     generator = GenerateStates(GeneratorBasic(start_time=100000000))
-    generate_data(10**6, generator, 'test_med_med.csv')
-    #generate_data(10**6 * 40, generator, 'test.csv')
+    #generate_data(10**6, generator, 'test_med_med.csv')
+    generate_data(10**6 * 40, generator, 'test.csv')
 
 
 

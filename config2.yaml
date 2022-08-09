@@ -1,0 +1,115 @@
+events:
+  - match: [[Null, 'New command started']]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: null, to: open}
+  - match: [[Null, 'Command started processing']]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: open, to: processing}
+  - match: [[Null, 'Dispatched command']]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+) subtag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+          - { name: subtag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: processing, to: response}
+      - {sm: subtag, from: null, to: open}
+  - match: [[Null, 'Cache hit, early return']]
+    tag: [interest]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: processing, to: complete}
+  - match: [[Null, 'Command response received']]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+) subtag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+          - { name: subtag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: response, to: complete}
+      - {sm: subtag, from: open, to: null}
+    relative_events:
+      - offset: 1
+        match: [[Null, 'Response status : ({:d})']]
+        field_defs:
+          - regex: [Msg, 'Response status : ({:d})']
+            labels:
+              - { name: response, parse: 'lambda x: int(x)' }
+          - regex: [Timestamp, null]
+            labels:
+              - { name: timestamp, parse: null }
+  - match: [[Null, 'Command complete']]
+    field_defs:
+      - regex: [Msg, 'ctag : 0x([0-9a-fA-F]+)']
+        labels:
+          - { name: ctag, parse: 'lambda x: int(x,16)' }
+      - regex: [Timestamp, null]
+        labels:
+          - { name: timestamp, parse: null }
+    transitions:
+      - {sm: ctag, from: complete, to: null}
+
+state_machines:
+  - name: ctag
+    instance_id: ctag
+    instance_id_valid_range: [0,255]
+  - name: subtag
+    instance_id: subtag
+    instance_id_valid_range: [0,255]
+
+event_groups:
+  - name: errors
+    events_ids: [0, 5, 12]
+
+tables:
+  - name: log
+    columns:
+      - label: Timestamp
+        type: int
+      - label: Module
+        type: text
+      - label: Submodule
+        type: text
+      - label: Msg
+        type: text
+      - label: Data1
+        type: text
+      - label: Data2
+        type: text
+      - label: Data3
+        type: text
+      - label: Data4
+        type: text
+    primary_key: [Timestamp]
+    indexes: [[Timestamp],[Module]]
+
+
+# -Probably need to add a filter: field for relative_events to fully define
+# what "offset" means
+
